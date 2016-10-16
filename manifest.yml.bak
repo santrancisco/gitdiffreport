@@ -1,0 +1,16 @@
+
+---
+applications:
+- name: gitdiffreport
+  buildpack: https://github.com/cloudfoundry/go-buildpack.git
+  command: gitdiffreport
+  memory: 256M
+  env:
+    GOVERSION: go1.6
+    GOPACKAGENAME: github.com/santrancisco/gitdiffreport
+    CHECK_ORG: <?= ORG NAME =>
+    CHECK_TIMER: 60s
+    VCAP_APP_PORT: 8080
+    CHECK_PERPAGE: 100
+    CHECK_SLACK : "@santrancisco"
+    CHECK_GITHUB: <?= GITHUBTOKEN =>
