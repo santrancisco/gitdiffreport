@@ -11,18 +11,22 @@ import (
 )
 
 type reportstruct struct {
-	Name     string
-	Language string
-	Size     int
-	Fork     bool
-	Private  bool
-	CloneURL string
+	Name             string
+	Language         string
+	Size             int
+	IsTested         bool
+	Fork             bool
+	Private          bool
+	OverCompareLimit bool
+	CloneURL         string
+	NumberOfRelease  int
 	*checkpointstruct
-	CreateAt      time.Time
-	PushAt        time.Time
-	LastCommitSHA string
-	totalcommits  int
-	Changes       map[string]*changestruct
+	CreateAt         time.Time
+	PushAt           time.Time
+	LastCommitSHA    string
+	TotalCommitsDiff int
+	Changes          map[string]*changestruct
+	Messages         []string
 }
 
 //status: 0 - added , 1 - modified , 2 - deleted
@@ -40,12 +44,14 @@ type checkpointstruct struct {
 // Gitstruct which contains the client to github, the list of secops members,
 // the list of repositories and the latest sha1 commit we checked
 type Gitstruct struct {
-	Client        *github.Client
-	Org           string
-	Token         string
-	Secopsmembers []string
-	Repositories  map[string]*checkpointstruct
-	Reports       map[string]*reportstruct
+	IgnoreRepos     []string
+	IgnoreExtension []string
+	Client          *github.Client
+	Org             string
+	Token           string
+	Secopsmembers   []string
+	Repositories    map[string]*checkpointstruct
+	Reports         map[string]*reportstruct
 }
 
 // NewGitstruct is constructor for Gitstruct
@@ -77,6 +83,27 @@ func contains(s []string, e string) bool {
 		}
 	}
 	return false
+}
+
+func safeAssignString(spointer *string) string {
+	if spointer == nil {
+		return "None"
+	}
+	return *spointer
+}
+
+func getExtension(filename string) (ext string) {
+	filename = getLast(strings.Split(filename, "/"))
+	ext = "no_extension"
+	if strings.Contains(filename, ".") {
+		ext = getLast(strings.Split(filename, "."))
+	}
+	return ext
+}
+
+//Helper function to get last element of string array
+func getLast(stringarray []string) string {
+	return stringarray[len(stringarray)-1]
 }
 
 //GetSecopMembers get the list of Secops members
@@ -115,7 +142,12 @@ func (g *Gitstruct) GetRepositories() error {
 		// If this is a new repository, add it to the list. We also only care about repositories changed in the last 1 month for now
 		if _, exist := g.Repositories[*r.Name]; !exist && (time.Now().AddDate(0, -1, 0)).Before(r.PushedAt.Time) {
 			log.Printf("%s - %s", *r.Name, r.PushedAt.Time)
+			// Initialise CheckpointSHA with "new" indicating pentest has not happened.
 			g.Repositories[*r.Name] = &checkpointstruct{Repo: *r.Name, CheckpointSHA: "new"}
+			err = g.GetRepoStat(*r.Name)
+			if err != nil {
+				return (err)
+			}
 		}
 	}
 	//log.Printf("New list of repository :\n %s\n", g.Repositories)
@@ -138,9 +170,9 @@ func (g *Gitstruct) GetPentestCheckpoint(repo string) error {
 			g.Repositories[repo].Repo = repo
 			g.Repositories[repo].CheckpointTime = *i.CreatedAt
 			g.Repositories[repo].CheckpointSHA = strings.TrimSpace(*i.Body)
+			g.Reports[repo].IsTested = true
 		}
 	}
-	log.Println(g.Repositories)
 	return nil
 }
 
@@ -158,68 +190,123 @@ func (g *Gitstruct) GetRepoStat(repo string) error {
 		g.Reports[repo].Changes = map[string]*changestruct{}
 	}
 	g.Reports[repo].Name = repo
-	g.Reports[repo].Language = *repostat.Language
+	g.Reports[repo].Language = safeAssignString(repostat.Language)
 	g.Reports[repo].Size = *repostat.Size
 	g.Reports[repo].CreateAt = repostat.CreatedAt.Time
 	g.Reports[repo].PushAt = repostat.PushedAt.Time
-	g.Reports[repo].CloneURL = *repostat.CloneURL
+	g.Reports[repo].CloneURL = safeAssignString(repostat.CloneURL)
+	g.Reports[repo].NumberOfRelease = 0
 	g.Reports[repo].Fork = *repostat.Fork
 	g.Reports[repo].Private = *repostat.Private
+	g.Reports[repo].OverCompareLimit = false
+	g.Reports[repo].TotalCommitsDiff = -1
 	lastcommit, _, err := g.Client.Repositories.ListCommits(g.Org, repo, &github.CommitsListOptions{ListOptions: github.ListOptions{PerPage: 1}})
 	if err != nil {
 		return (err)
 	}
 	// Update the pentest checkpoint for this repository
+	g.Reports[repo].IsTested = false
 	err = g.GetPentestCheckpoint(repo)
 	if err != nil {
 		return (err)
 	}
 	g.Reports[repo].checkpointstruct = g.Repositories[repo]
 
+	// Note: this check may not be neccessary as we will re-run every morning and init new object anyway.
 	if g.Reports[repo].LastCommitSHA != *lastcommit[0].SHA {
 		// We have some new commits!
 		log.Println("We got some new commits!")
 		g.Reports[repo].LastCommitSHA = *lastcommit[0].SHA
 		err = g.GetCommitDiff(repo, g.Reports[repo].checkpointstruct.CheckpointSHA, g.Reports[repo].LastCommitSHA)
+		err = g.GetReleaseTags(repo)
 		if err != nil {
 			return (err)
 		}
 	}
-
-	//GetCommitDiff()
 	return nil
 }
 
-//Helper function to get last element of string array
-func getLast(stringarray []string) string {
-	return stringarray[len(stringarray)-1]
+// GetCommitMessages gets commit messages for the report.
+func (g *Gitstruct) GetCommitMessages(repo string, gitdiff *github.CommitsComparison) error {
+	for _, commit := range gitdiff.Commits {
+		message := *commit.Commit.Message
+		wholecommit, _, err := g.Client.Repositories.GetCommit(g.Org, repo, *commit.SHA)
+		if err != nil {
+			return (err)
+		}
+		interested := false
+		for _, file := range wholecommit.Files {
+			if !contains(g.IgnoreExtension, getExtension(*file.Filename)) {
+				// If any file is not in the list of ignore-extension, we will probably be interested in the commit message
+				interested = true
+				break
+			}
+		}
+		if interested {
+			//log.Println("Interested in : " + message)
+			g.Reports[repo].Messages = append(g.Reports[repo].Messages, message)
+		}
+	}
+	return nil
+}
+
+// GetReleaseTags get all the release tag for this project
+func (g *Gitstruct) GetReleaseTags(repo string) error {
+	tags, _, err := g.Client.Repositories.ListTags(g.Org, repo, nil)
+	if err != nil {
+		return err
+	}
+	if g.Reports[repo].CheckpointSHA == "new" {
+		g.Reports[repo].NumberOfRelease = len(tags)
+		return nil
+	}
+	// Check which release tag was created since our last checkpoint pentest
+	counter := 0
+	for _, tag := range tags {
+		diff, _, err := g.Client.Repositories.CompareCommits(g.Org, repo, *tag.Commit.SHA, g.Reports[repo].LastCommitSHA)
+		if err != nil {
+			continue
+		}
+		if *diff.TotalCommits > g.Reports[repo].TotalCommitsDiff {
+			break
+		}
+		counter++
+	}
+	g.Reports[repo].NumberOfRelease = counter
+	return nil
 }
 
 //GetCommitDiff behaves like gitdiff and gives us a report of what has changed since the last pentest checkpoint
 func (g *Gitstruct) GetCommitDiff(repo, sha1before, sha1after string) error {
-	if sha1before == "new" {
-		log.Printf("Got a new repo here! Never been touched %s\n", repo)
-		//If this is a brand new project that has not been tested previously.
-
-	} else {
+	if g.Reports[repo].IsTested {
 		log.Printf("Got a repo been tested here! %s\n", repo)
 		diff, _, err := g.Client.Repositories.CompareCommits(g.Org, repo, sha1before, sha1after)
 		if err != nil {
 			return (err)
 		}
-		g.Reports[repo].totalcommits = *diff.TotalCommits
+		g.Reports[repo].TotalCommitsDiff = *diff.TotalCommits
+		// TODO: git api compare can only handle up to 250 commits at a time
+		// Do we need to go through every single commits if that is the case?
+		if *diff.TotalCommits > 250 {
+			g.Reports[repo].OverCompareLimit = true
+		}
 		for _, file := range diff.Files {
-			filename := getLast(strings.Split(*file.Filename, "/"))
-			if strings.Contains(filename, ".") {
-				extension := getLast(strings.Split(filename, "."))
-				if _, exist := g.Reports[repo].Changes[extension]; !exist {
-					g.Reports[repo].Changes[extension] = &changestruct{Additions: 0, Deletions: 0}
-				}
-				g.Reports[repo].Changes[extension].Additions += *file.Additions
-				g.Reports[repo].Changes[extension].Deletions += *file.Deletions
+			extension := getExtension(*file.Filename)
+			if _, exist := g.Reports[repo].Changes[extension]; !exist {
+				g.Reports[repo].Changes[extension] = &changestruct{Additions: 0, Deletions: 0}
 			}
+			g.Reports[repo].Changes[extension].Additions += *file.Additions
+			g.Reports[repo].Changes[extension].Deletions += *file.Deletions
 
 		}
+		err = g.GetCommitMessages(repo, diff)
+		if err != nil {
+			return (err)
+		}
+
+	} else {
+		//If this is a brand new project that has not been tested previously.
+		log.Printf("Got a new repo here! Never been touched %s\n", repo)
 
 	}
 	return nil

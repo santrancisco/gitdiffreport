@@ -62,6 +62,8 @@ func main() {
 	gitclient, err := githubwraper.NewGitstruct(*org, githubToken)
 	check(err)
 	//_ = gitclient.GetPentestCheckpoint("sec")
+	gitclient.IgnoreExtension = []string{"js", "html", "css", "no_extension", "DS_Store", "md", "erb", "scss", "json"}
+	//_ = gitclient.GetRepoStat("sec")
 	log.Println("Producing JSON report")
 	reportJSON, _ := json.Marshal(gitclient.Reports)
 	err = ioutil.WriteFile("static/stats.json", reportJSON, 0644)
