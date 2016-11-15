@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pentest stats</title>
+  <link rel="stylesheet" media="all" href="https://s3.amazonaws.com/dynatable-docs-assets/css/jquery.dynatable.css" />
+  <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/pure/0.6.0/pure-min.css">
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Raleway:200">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.min.css">
+  <link rel="stylesheet" href="/stylesheets/main.css">
+  <script type='text/javascript' src='https://s3.amazonaws.com/dynatable-docs-assets/js/jquery-1.9.1.min.js'></script>
+  <script type='text/javascript' src='https://s3.amazonaws.com/dynatable-docs-assets/js/jquery.dynatable.js'></script>
+  <script src="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.3.1/js/bootstrap.min.js"></script>
+
+</head>
+<body>
+  <div class="header">
+  <h1>Penetration test statistic</h1>
+</div>
+  <div class="content">
+    <div class="dynatable-pentest">
+        <table id="pentest-stat-table" class="pure-table">
+            <thead >
+                <th data-dynatable-column="Name">Name</th>
+                <th data-dynatable-column="Private">IsPrivate</th>
+                <th data-dynatable-column="IsTested">IsTested</th>
+                <th data-dynatable-column="Language">Language</th>
+                <th data-dynatable-column="CreateAt">PushAt</th>
+                <th data-dynatable-column="NumberOfRelease">Releases</th>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="myModal" class="modal hide fade" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true" style="display: none;">
+    <div class="modal-header">
+        <h1 id="myModalLabel">A Bootstrap Modal with Pure</h1>
+    </div>
+
+    <div class="modal-body">
+        <p>
+            The following stats are related to this project:
+        </p>
+
+        <legend>Messages of the commits</legend>
+        <p id="myModalMessages">
+        </p>
+
+    </div>
+
+    <div class="modal-footer">
+        <button class="pure-button" data-dismiss="modal" aria-hidden="true">Close</button>
+        <button class="pure-button pure-button-primary" onclick=createFIR($('myModal')[0].innerText)>Create FIR incident</button>
+    </div>
+</div>
+<!-- /Modal -->
+
+
+  <script>
+  var jsonurl = "/stats.json"
+  // Request the stats.json url produced by golang code.
+  // and assign it to window.data variable.
+
+  //This static pages meant to go into another application and hence the
+  $.ajaxSetup({
+    headers : {
+      async : false,
+      //'Authorization' : ''
+    },
+    xhrFields: {
+       withCredentials: true
+    }
+    });
+    var jsonraw = $.getJSON(jsonurl,function(data){
+      window.data = data;
+      init();
+  })
+
+  function drawStat(){
+    console.log(window.tabledata);
+    window.pentesttable = $('#pentest-stat-table').dynatable({
+      dataset: {
+       records: window.tabledata
+     }
+   });
+  }
+
+  function massageData(){
+    window.tabledata = [];
+    for (var k in window.data){
+      row = window.data[k]
+      row.Name = "<a href=\"#myModal\" style=\"cursor: pointer;\" onclick=\"showdetails('"+row.Name+"')\">"+row.Name+"</a>"
+      window.tabledata.push(window.data[k]);
+
+    }
+  }
+
+  function showdetails(name){
+    $("#myModalLabel")[0].innerText = name;
+    $('#myModal').modal("toggle")
+    $('#myModalMessages')[0].innerText = ""
+      $('#myModalMessages')[0].innerHTML = window.data[name].Messages.join(" <br> ");
+
+  }
+
+  function init(){
+    massageData();
+    drawStat();
+  }
+
+  //TODO: CREATE onclick event for FIR incident request event
+
+  </script>
+</body>
+</html>
