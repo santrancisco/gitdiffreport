@@ -83,11 +83,6 @@ func main() {
 		//_ = gitclient.GetRepoStat("sec")
 		log.Println("Producing JSON report")
 		reportJSON, _ := json.Marshal(gitclient.Reports)
-		for _, value := range gitclient.Reports {
-			a, _ := json.Marshal(value)
-			err = sendToUDP(&a)
-			check(err)
-		}
 		err = ioutil.WriteFile("static/stats.json", reportJSON, 0644)
 		check(err)
 		time.Sleep(*timer)

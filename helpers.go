@@ -3,11 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"time"
 
-	"github.com/santrancisco/checkcommit/slackalert"
 )
 
 func check(e error) {
