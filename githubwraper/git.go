@@ -19,6 +19,7 @@ type reportstruct struct {
 	Private          bool
 	OverCompareLimit bool
 	CloneURL         string
+	TeamsURL         string
 	NumberOfRelease  int
 	*checkpointstruct
 	CreateAt         time.Time
@@ -52,6 +53,34 @@ type Gitstruct struct {
 	Secopsmembers   []string
 	Repositories    map[string]*checkpointstruct
 	Reports         map[string]*reportstruct
+}
+
+// TODO : due to the volume of apps in organisation, we may want to temporary stop monitoring certain repository.
+// In that case, we will create a "Pentest requirement reviewed" issue and tag it with question tag.
+
+//String is a helper function that return the address of the string
+func String(v string) *string {
+	return &v
+}
+
+//PentestReviewUpdate updates the Issues for particular repository and create a question issue
+func PentestReviewUpdate(org, githubToken, repo, latestsha1 string) (err error) {
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: githubToken},
+	)
+	tc := oauth2.NewClient(oauth2.NoContext, ts)
+	client := github.NewClient(tc)
+	issuerequest := github.IssueRequest{
+		Title:  String("Pentest requirement reviewed"),
+		Body:   String(latestsha1),
+		Labels: &[]string{"question"},
+	}
+	//Calling this will creat a new issue
+	_, _, err = client.Issues.Create(org, repo, &issuerequest)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // NewGitstruct is constructor for Gitstruct
@@ -189,6 +218,7 @@ func (g *Gitstruct) GetRepoStat(repo string) error {
 		g.Reports[repo] = &reportstruct{}
 		g.Reports[repo].Changes = map[string]*changestruct{}
 	}
+	g.Reports[repo].TeamsURL = *repostat.TeamsURL
 	g.Reports[repo].Name = repo
 	g.Reports[repo].Language = safeAssignString(repostat.Language)
 	g.Reports[repo].Size = *repostat.Size
