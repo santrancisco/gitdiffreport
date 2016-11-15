@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"time"
 
@@ -23,13 +24,3 @@ func debug(s string) {
 	}
 }
 
-//Send slackreport to slack
-func sendtoslack(slackreport string) {
-	debug(slackreport)
-	if (slackreport != "") && (!*debugflag) {
-		slackreport = "POTENTIAL CREDENTIALS LEAK:\n\n" + slackreport
-		notify := slackalert.SlackStruct{URL: slackurl, Uploadtoken: slacktoken, Icon: POLICE, Channel: *slackchannel}
-		notify.Sendmsg("Incoming falsch positiv aufmerksam!")
-		notify.UploadFile(time.Now().Format("2006-02-01")+".txt", slackreport)
-	}
-}

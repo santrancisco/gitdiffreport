@@ -13,5 +13,6 @@ This golang app fetch information from github api periodically and look for this
 
 This information is saved into a json file and rendered with a static page using dyntablejs as shown below 
 
+![Sample](img.jpg)
 
 Finally users can click on the project name to display a modal about the projects, the comments fromt the last few commit to decide whether it needs to be tested.
